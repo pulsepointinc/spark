@@ -33,6 +33,12 @@
   <name>Spark Project External Kafka</name>
   <url>http://spark.apache.org/</url>
 
+  <scm>
+        <connection>scm:git:http://https://github.com/pulsepointinc/spark/tree/custom/external/kafka</connection>
+        <developerConnection>scm:git:http://https://github.com/pulsepointinc/spark/tree/custom/external/kafka</developerConnection>
+        <url>https://github.com/pulsepointinc/spark/tree/custom/external/kafka</url>
+   </scm>
+
   <dependencies>
     <dependency>
       <groupId>org.apache.spark</groupId>

@@ -24,7 +24,7 @@ import java.lang.{Integer => JInt}
 import java.util.{Map => JMap}
 
 import kafka.serializer.{Decoder, StringDecoder}
-
+import kafka.serializer.{DefaultDecoder, Decoder, StringDecoder}
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.streaming.StreamingContext
 import org.apache.spark.streaming.api.java.{JavaPairReceiverInputDStream, JavaStreamingContext, JavaPairDStream}
@@ -159,6 +159,7 @@ object KafkaUtils {
                        topics: JMap[String, JInt]
                        ): JavaPairDStream[Array[Byte], Array[Byte]] = {
     new KafkaInputDStream[Array[Byte], Array[Byte], DefaultDecoder, DefaultDecoder](
-      jssc.ssc, kafkaParams.toMap, Map(topics.mapValues(_.intValue()).toSeq: _*), StorageLevel.MEMORY_AND_DISK_SER_2)
+      jssc.ssc, kafkaParams.toMap, Map(topics.mapValues(_.intValue()).toSeq: _*), 
+      StorageLevel.MEMORY_AND_DISK_SER_2)
   }
 }
