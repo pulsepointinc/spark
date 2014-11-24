@@ -145,4 +145,20 @@ object KafkaUtils {
     createStream[K, V, U, T](
       jssc.ssc, kafkaParams.toMap, Map(topics.mapValues(_.intValue()).toSeq: _*), storageLevel)
   }
+  /**
+   * Custom method to handle byte array data
+   * @param jssc
+   * @param kafkaParams
+   * @param topics
+   * @return
+   */
+
+  def createRawStream(
+                       jssc: JavaStreamingContext,
+                       kafkaParams: JMap[String, String],
+                       topics: JMap[String, JInt]
+                       ): JavaPairDStream[Array[Byte], Array[Byte]] = {
+    new KafkaInputDStream[Array[Byte], Array[Byte], DefaultDecoder, DefaultDecoder](
+      jssc.ssc, kafkaParams.toMap, Map(topics.mapValues(_.intValue()).toSeq: _*), StorageLevel.MEMORY_AND_DISK_SER_2)
+  }
 }
