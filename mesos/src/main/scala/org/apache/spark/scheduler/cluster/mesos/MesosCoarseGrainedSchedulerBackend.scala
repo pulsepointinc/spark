@@ -54,7 +54,9 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
   with org.apache.mesos.Scheduler
   with MesosSchedulerUtils {
 
-  val MAX_SLAVE_FAILURES = 2     // Blacklist a slave after this many failures
+  val backListEnabled: Boolean = conf.getBoolean("spark.mesos.blacklist.enabled", true)
+  // Blacklist a slave after this many failures
+  val maxSlaveFailures: Int = conf.getInt("spark.mesos.blacklist.maxSlaveFailures", 2)
 
   // Maximum number of cores to acquire (TODO: we'll need more flexible controls here)
   val maxCores = conf.get("spark.cores.max", Int.MaxValue.toString).toInt
@@ -481,8 +483,12 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
       cpus + totalCoresAcquired <= maxCores &&
       mem <= offerMem &&
       numExecutors() < executorLimit &&
-      slaves.get(slaveId).map(_.taskFailures).getOrElse(0) < MAX_SLAVE_FAILURES &&
+      isNotBlackListed(slaveId) &&
       meetsPortRequirements
+  }
+
+  private def isNotBlackListed(slaveId: String) : Boolean = {
+    ( ! backListEnabled ) || slaves.get(slaveId).map(_.taskFailures).getOrElse(0) < maxSlaveFailures
   }
 
   private def executorCores(offerCPUs: Int): Int = {
@@ -541,7 +547,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
         if (TaskState.isFailed(state)) {
           slave.taskFailures += 1
 
-          if (slave.taskFailures >= MAX_SLAVE_FAILURES) {
+          if ( backListEnabled && slave.taskFailures >= maxSlaveFailures) {
             logInfo(s"Blacklisting Mesos slave $slaveId due to too many failures; " +
                 "is Spark installed on it?")
           }
