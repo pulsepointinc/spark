@@ -110,6 +110,69 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
     verifyTaskLaunched(driver, "o2")
   }
 
+  test("mesos does not restart task on the same slave after default (2) errors") {
+    setBackend()
+    // launches a task on a valid offer
+    val minMem = backend.executorMemory(sc) + 1024
+    val minCpu = 1
+    val offer = Resources(minMem, minCpu)
+    offerResources(List(offer))
+    verifyTaskLaunched(driver, "o1")
+
+    // accounts for a killed task
+    val status1 = createTaskStatus("0", "s1", TaskState.TASK_ERROR)
+    backend.statusUpdate(driver, status1)
+    verify(driver, times(1)).reviveOffers()
+
+    // Launches a new task on a valid offer from the same slave
+    offerResources(List(offer))
+    verifyTaskLaunched(driver, "o1", 2)
+
+    val status2 = createTaskStatus("1", "s1", TaskState.TASK_ERROR)
+    backend.statusUpdate(driver, status2)
+    verify(driver, times(2)).reviveOffers()
+
+    // Verify that task was not lunched  - counter still 2
+    offerResources(List(offer))
+    verifyTaskLaunched(driver, "o1", 2)
+  }
+
+  test("spark.mesos.blacklist.maxSlaveFailures=1 and task does not restarted on the same slave") {
+    setBackend(Map("spark.mesos.blacklist.maxSlaveFailures" -> "1"))
+    // launches a task on a valid offer
+    val minMem = backend.executorMemory(sc) + 1024
+    val minCpu = 1
+    val offer = Resources(minMem, minCpu)
+    offerResources(List(offer))
+    verifyTaskLaunched(driver, "o1")
+
+    // accounts for a killed task
+    val status1 = createTaskStatus("0", "s1", TaskState.TASK_ERROR)
+    backend.statusUpdate(driver, status1)
+    verify(driver, times(1)).reviveOffers()
+
+    // Verify that task was not lunched  - counter still 2
+    offerResources(List(offer))
+    verifyTaskLaunched(driver, "o1")
+  }
+
+  test("spark.mesos.blacklist.maxSlaveFailures=0, task can be always restarted on the same slave") {
+    setBackend(Map("spark.mesos.blacklist.maxSlaveFailures" -> "0"))
+    // launches a task on a valid offer
+    val minMem = backend.executorMemory(sc) + 1024
+    val minCpu = 1
+    val offer = Resources(minMem, minCpu)
+    // Launches a new task on a valid offer from the same slave
+    // and verify that task was lunched
+    for ( i <- 1 to 5 ) {
+      offerResources(List(offer))
+      verifyTaskLaunched(driver, "o1", i)
+      val status1 = createTaskStatus((i-1).toString, "s1", TaskState.TASK_ERROR)
+      backend.statusUpdate(driver, status1)
+      verify(driver, times(i)).reviveOffers()
+    }
+  }
+
   test("mesos supports spark.executor.cores") {
     val executorCores = 4
     setBackend(Map("spark.executor.cores" -> executorCores.toString))

@@ -65,13 +65,16 @@ object Utils {
       .build()
   }
 
-  def verifyTaskLaunched(driver: SchedulerDriver, offerId: String): List[TaskInfo] = {
+  def verifyTaskLaunched(driver: SchedulerDriver,
+                         offerId: String,
+                         nTimes: Int = 1): List[TaskInfo] = {
     val captor = ArgumentCaptor.forClass(classOf[java.util.Collection[TaskInfo]])
-    verify(driver, times(1)).launchTasks(
+    verify(driver, times(nTimes)).launchTasks(
       Matchers.eq(Collections.singleton(createOfferId(offerId))),
       captor.capture())
     captor.getValue.asScala.toList
   }
+
 
   def createOfferId(offerId: String): OfferID = {
     OfferID.newBuilder().setValue(offerId).build()
