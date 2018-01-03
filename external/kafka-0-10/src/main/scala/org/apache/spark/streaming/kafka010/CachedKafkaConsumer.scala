@@ -17,10 +17,11 @@
 
 package org.apache.spark.streaming.kafka010
 
-import java.{ util => ju }
+import java.{util => ju}
+import java.{lang => jl}
 
-import org.apache.kafka.clients.consumer.{ ConsumerConfig, ConsumerRecord, KafkaConsumer }
-import org.apache.kafka.common.{ KafkaException, TopicPartition }
+import org.apache.kafka.clients.consumer.{ConsumerConfig, ConsumerRecord, KafkaConsumer}
+import org.apache.kafka.common.{KafkaException, TopicPartition}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.internal.Logging
@@ -40,6 +41,13 @@ class CachedKafkaConsumer[K, V] private(
 
   assert(groupId == kafkaParams.get(ConsumerConfig.GROUP_ID_CONFIG),
     "groupId used for cache key must match the groupId in kafkaParams")
+
+  val ignoreTimeoutError: Boolean =
+    kafkaParams.getOrDefault("ignore.timeout.error", jl.Boolean.FALSE).asInstanceOf[Boolean]
+  logInfo(s"Initialized ignore.timeout.error with $ignoreTimeoutError")
+
+  val getFn: (Long, Long) => ConsumerRecord[K, V] =
+    if ( ignoreTimeoutError ) getWithIgnore else getWithCheck
 
   val topicPartition = new TopicPartition(topic, partition)
 
@@ -62,7 +70,13 @@ class CachedKafkaConsumer[K, V] private(
    * Get the record for the given offset, waiting up to timeout ms if IO is necessary.
    * Sequential forward access will use buffers, but random access will be horribly inefficient.
    */
-  def get(offset: Long, timeout: Long): ConsumerRecord[K, V] = {
+  def get(offset: Long, timeout: Long): ConsumerRecord[K, V] = getFn(offset, timeout)
+
+  /**
+    * Get the record for the given offset, waiting up to timeout ms if IO is necessary.
+    * Sequential forward access will use buffers, but random access will be horribly inefficient.
+    */
+  def getWithCheck(offset: Long, timeout: Long): ConsumerRecord[K, V] = {
     logDebug(s"Get $groupId $topic $partition nextOffset $nextOffset requested $offset")
     if (offset != nextOffset) {
       logInfo(s"Initial fetch for $groupId $topic $partition $offset")
@@ -80,12 +94,52 @@ class CachedKafkaConsumer[K, V] private(
       seek(offset)
       poll(timeout)
       assert(buffer.hasNext(),
-        s"Failed to get records for $groupId $topic $partition $offset after polling for $timeout")
+        s"Failed to get records for $groupId $topic $partition " +
+          s"$offset after polling for $timeout")
       record = buffer.next()
       assert(record.offset == offset,
         s"Got wrong record for $groupId $topic $partition even after seeking to offset $offset")
     }
+    nextOffset = offset + 1
+    record
+  }
 
+
+  /**
+    * Get the record for the given offset, waiting up to timeout ms if IO is necessary.
+    * Sequential forward access will use buffers, but random access will be horribly inefficient.
+    * return null record if error
+    */
+  def getWithIgnore(offset: Long, timeout: Long): ConsumerRecord[K, V] = {
+    logDebug(s"Get $groupId $topic $partition nextOffset $nextOffset requested $offset")
+    if (offset != nextOffset) {
+      logInfo(s"Initial fetch for $groupId $topic $partition $offset")
+      seek(offset)
+      poll(timeout)
+    }
+
+    if (!buffer.hasNext()) { poll(timeout) }
+    var record = if ( buffer.hasNext() ) buffer.next() else {
+      createIgnoreRecord(offset)
+    }
+
+    if (record.offset != offset) {
+      logInfo(s"Buffer miss for $groupId $topic $partition $offset")
+      seek(offset)
+      poll(timeout)
+      if ( buffer.hasNext() ) {
+        record = buffer.next()
+        if ( record.offset != offset ) {
+          logError(s"Got wrong record for $groupId $topic $partition " +
+            s"even after seeking to offset $offset")
+          record = createIgnoreRecord(offset)
+        }
+      } else {
+        logError(s"Failed to get records for $groupId " +
+          s"$topic $partition $offset after polling for $timeout")
+        record = createIgnoreRecord(offset)
+      }
+    }
     nextOffset = offset + 1
     record
   }
@@ -100,6 +154,12 @@ class CachedKafkaConsumer[K, V] private(
     val r = p.records(topicPartition)
     logDebug(s"Polled ${p.partitions()}  ${r.size}")
     buffer = r.iterator
+  }
+
+  private def createIgnoreRecord(offset: Long): ConsumerRecord[K, V] = {
+    val k: K = null.asInstanceOf[K]
+    val v: V = null.asInstanceOf[V]
+    new ConsumerRecord[K, V](topic, partition, offset, k, v)
   }
 
 }
