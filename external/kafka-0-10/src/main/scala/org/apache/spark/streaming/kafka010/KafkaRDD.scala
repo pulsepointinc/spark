@@ -75,6 +75,8 @@ private[spark] class KafkaRDD[K, V](
   private val cacheLoadFactor =
     conf.getDouble("spark.streaming.kafka.consumer.cache.loadFactor", 0.75).toFloat
 
+  private val offsetPartitioner = loadOffsetPartitioner()
+
   override def persist(newLevel: StorageLevel): this.type = {
     logError("Kafka ConsumerRecord is not serializable. " +
       "Use .map to extract fields before calling .persist or .window")
@@ -82,9 +84,10 @@ private[spark] class KafkaRDD[K, V](
   }
 
   override def getPartitions: Array[Partition] = {
-    offsetRanges.zipWithIndex.map { case (o, i) =>
+    offsetPartitioner(offsetRanges)
+      .zipWithIndex.map { case (o, i) =>
         new KafkaRDDPartition(i, o.topic, o.partition, o.fromOffset, o.untilOffset)
-    }.toArray
+      }.toArray
   }
 
   override def count(): Long = offsetRanges.map(_.count).sum
@@ -180,6 +183,23 @@ private[spark] class KafkaRDD[K, V](
     } else {
       new KafkaRDDIterator(part, context)
     }
+  }
+
+  private def loadOffsetPartitioner(): (Array[OffsetRange]) => Array[OffsetRange] = {
+    val offsetPartitionerClass = conf.get("spark.streaming.kafka.offset.partitioner", "")
+    if ( offsetPartitionerClass.isEmpty ) {
+      defaultOffsetPartitioner
+    } else {
+      this.getClass.getClassLoader
+        .loadClass(offsetPartitionerClass)
+        .getConstructor()
+        .newInstance()
+        .asInstanceOf[(Array[OffsetRange]) => Array[OffsetRange]]
+    }
+  }
+
+  private def defaultOffsetPartitioner(offsetRanges: Array[OffsetRange]): Array[OffsetRange] = {
+    offsetRanges
   }
 
   /**

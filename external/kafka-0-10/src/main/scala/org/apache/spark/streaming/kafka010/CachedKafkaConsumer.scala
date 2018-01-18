@@ -120,6 +120,8 @@ class CachedKafkaConsumer[K, V] private(
 
     if (!buffer.hasNext()) { poll(timeout) }
     var record = if ( buffer.hasNext() ) buffer.next() else {
+      logError(s"Got wrong record for $groupId $topic $partition " +
+        s"even after seeking to offset $offset")
       createIgnoreRecord(offset)
     }
 
